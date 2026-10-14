@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQR Code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0f1720; --ink:#e8eef4; --muted:#9fb3c8; --line:#2a3a4a; --dim:#6f8296; --accent:#f2a33a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:'IBM Plex Mono', ui-monospace, monospace; }
+  .board { width:880px; min-height:1040px; margin:0 auto; padding:56px 64px; display:flex; flex-direction:column; align-items:center; gap:36px; }
+  header { align-self:stretch; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; }
+  .sub { font-size:20px; letter-spacing:.04em; color:var(--muted); margin-top:8px; }
+  .kicker { font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+  h1 { margin:0; font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:44px; line-height:1.05; color:#fff; }
+  .meta { font-size:13px; color:var(--muted); text-align:right; line-height:1.6; }
+  .stage { position:relative; width:620px; height:620px; }
+  .orbit { position:absolute; border-radius:50%; border:1px solid var(--line); }
+  .tick, .anchor { position:absolute; left:50%; top:50%; transform-origin:50% 0; }
+  .tick { width:4px; margin-left:-2px; border-radius:2px; }
+  .anchor { background:var(--accent); }
+  .qr { position:absolute; left:50%; top:50%; width:360px; height:360px; margin:-180px 0 0 -180px; background:#fff; border-radius:14px; padding:18px; }
+  .qr-grid { width:100%; height:100%; display:grid; grid-template-columns:repeat(25,1fr); grid-template-rows:repeat(25,1fr); }
+  .legend { align-self:stretch; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; font-size:13px; line-height:1.55; color:#c3d0dc; }
+  .legend h2 { display:flex; align-items:center; gap:10px; margin:0 0 6px; font-size:13px; font-weight:500; color:#fff; }
+  .sw-diamond { width:10px; height:10px; background:var(--accent); transform:rotate(45deg); }
+  .sw-tick { width:4px; height:16px; background:var(--ink); border-radius:2px; }
+  .sw-core { width:12px; height:12px; background:#fff; border-radius:2px; }
+  .legend p { margin:0; }
+</style>
+</head>
+<body>
+<main class="board">
+  <header>
+    <div>
+      <h1>SQR Code</h1>
+      <div class="sub">Secure QR</div>
+    </div>
+    <div class="meta">Issuer: [ISSUER NAME]<br>Serial: [CERT SERIAL]</div>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="orbit" style="inset:10px" aria-hidden="true"></div>
+    <div class="orbit" style="inset:44px" aria-hidden="true"></div>
+    <div class="qr"><div class="qr-grid" id="qr" role="img" aria-label="QR code (placeholder pattern)"></div></div>
+  </div>
+
+  <section class="legend">
+    <div><h2><span class="sw-diamond" aria-hidden="true"></span>Orientation anchors</h2><p>Three keyed markers fix rotation and read direction, so the ring decodes from any angle.</p></div>
+    <div><h2><span class="sw-tick" aria-hidden="true"></span>Certificate bits</h2><p>Long tick = 1, short tick = 0. Encodes the issuer key fingerprint plus a signature over the QR payload.</p></div>
+    <div><h2><span class="sw-core" aria-hidden="true"></span>Standard QR core</h2><p>Any phone camera still reads the plain payload; a verifying app also checks the ring.</p></div>
+  </section>
+</main>
+
+<script>
+// Mockup only: the QR modules and ring bits are seeded placeholder patterns, not real encoded data.
+// Change SEED / TICKS / ACCENT to vary the look.
+const SEED = 7, TICKS = 96, ACCENT = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function buildQR(seed) {
+  const n = 25, r = rng(seed);
+  const g = Array.from({ length: n }, () => Array.from({ length: n }, () => (r() > 0.5 ? 1 : 0)));
+  const finder = (ox, oy) => {
+    for (let y = -1; y <= 7; y++) for (let x = -1; x <= 7; x++) {
+      const gx = ox + x, gy = oy + y;
+      if (gx < 0 || gy < 0 || gx >= n || gy >= n) continue;
+      const inside = x >= 0 && x <= 6 && y >= 0 && y <= 6;
+      const edge = x === 0 || x === 6 || y === 0 || y === 6;
+      const core = x >= 2 && x <= 4 && y >= 2 && y <= 4;
+      g[gy][gx] = inside && (edge || core) ? 1 : 0;
+    }
+  };
+  finder(0, 0); finder(n - 7, 0); finder(0, n - 7);
+  for (let i = 8; i < n - 8; i++) { g[6][i] = g[i][6] = i % 2 === 0 ? 1 : 0; }
+  for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) {
+    g[18 + y][18 + x] = Math.max(Math.abs(x), Math.abs(y)) === 1 ? 0 : 1;
+  }
+  const el = document.getElementById('qr');
+  for (const row of g) for (const v of row) {
+    const c = document.createElement('div');
+    if (v) c.style.background = '#0f1720';
+    el.appendChild(c);
+  }
+}
+
+function buildRing(seed, count) {
+  const r = rng(seed * 31 + 3), inner = 266, stage = document.getElementById('stage');
+  const anchors = [0, Math.round(count / 3), Math.round(2 * count / 3)];
+  for (let i = 0; i < count; i++) {
+    const deg = (360 / count) * i, d = document.createElement('div');
+    d.setAttribute('aria-hidden', 'true');
+    if (anchors.includes(i)) {
+      const s = i === 0 ? 18 : 13;
+      d.className = 'anchor';
+      Object.assign(d.style, { width: s + 'px', height: s + 'px', marginLeft: -s / 2 + 'px',
+        transform: `rotate(${deg}deg) translateY(-${inner + 26}px) rotate(45deg)` });
+    } else {
+      const bit = r() > 0.5, h = bit ? 34 : 14;
+      d.className = 'tick';
+      Object.assign(d.style, { height: h + 'px', background: bit ? 'var(--ink)' : 'var(--dim)',
+        transform: `rotate(${deg}deg) translateY(-${inner + h}px)` });
+    }
+    stage.appendChild(d);
+  }
+}
+
+buildQR(SEED);
+buildRing(SEED, TICKS);
+</script>
+</body>
+</html>
